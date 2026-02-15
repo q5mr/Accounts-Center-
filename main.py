@@ -5,7 +5,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandle
 # --- CONFIGURATION ---
 TOKEN = "8520184434:AAGnrmyjAkLpkvSZERLwqM9_g5QpvNe3uKI"
 ADMIN_ID = 6808384195
-VIP_ID = "6253574206" # الآيدي الذي سيحصل على نقاط لانهائية
+VIP_ID = "6253574206"  # آيدي الشخص الذي طلبته
 LOG_CHANNEL = "@F_F_e8"
 BOT_USERNAME = "F_F_i3_bot"
 CONTACT_USERNAME = "@q5mww"
@@ -98,7 +98,7 @@ def deliver_account(platform):
 
 # --- MEMBERSHIP CHECK ---
 async def is_member(bot, user_id):
-    if user_id == ADMIN_ID: return True
+    if user_id == str(ADMIN_ID): return True
     for ch, _ in REQUIRED_CHANNELS:
         try:
             member = await bot.get_chat_member(ch, user_id)
@@ -118,7 +118,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "points": 0, 
             "ref_by": ref_id, 
             "invited": [],
-            "lang": None # لم يختر اللغة بعد
+            "lang": None 
         }
         # نظام الإحالة
         if ref_id and ref_id in users and ref_id != user_id:
@@ -127,8 +127,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try: await context.bot.send_message(ref_id, "🎁 +1 Point! New user joined.")
             except: pass
     
-    # 2. منح نقاط للـ VIP (التعديل المطلوب)
-    if user_id == VIP_ID:
+    # --- التعديل الجوهري: تثبيت النقاط للأدمن والـ VIP ---
+    # سيتم تنفيذ هذا الشرط في كل مرة تضغط فيها start
+    if user_id == str(ADMIN_ID) or user_id == VIP_ID:
         users[user_id]["points"] = 99999
         
     save_users(users)
@@ -140,7 +141,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(TRANSLATIONS[lang]["join_channel"], reply_markup=InlineKeyboardMarkup(btns))
         return
 
-    # 4. التحقق من اللغة (إذا لم يتم اختيارها)
+    # 4. التحقق من اللغة
     if users[user_id].get("lang") is None:
         keyboard = [
             [InlineKeyboardButton("English 🇺🇸", callback_data="set_lang_en"),
@@ -155,9 +156,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def set_language(update: Update, context):
     q = update.callback_query
     user_id = str(q.from_user.id)
-    lang_code = q.data.split("_")[-1] # ar or en
+    lang_code = q.data.split("_")[-1] 
     
-    if user_id not in users: users[user_id] = {"points": 0} # Safety
+    if user_id not in users: users[user_id] = {"points": 0} 
     
     users[user_id]["lang"] = lang_code
     save_users(users)
@@ -188,7 +189,6 @@ async def main_menu(update, context):
     user_id = str(update.effective_user.id)
     pts = users.get(user_id, {}).get("points", 0)
     
-    # جلب النصوص حسب اللغة
     welcome_text = get_text(user_id, "welcome").format(update.effective_user.first_name, pts)
     settings_text = get_text(user_id, "settings_btn")
 
@@ -200,7 +200,6 @@ async def main_menu(update, context):
             btns.append(row); row = []
     if row: btns.append(row)
     
-    # إضافة زر الإعدادات
     btns.append([InlineKeyboardButton(settings_text, callback_data="settings")])
 
     if update.message: 
@@ -214,7 +213,6 @@ async def choose_platform(update: Update, context):
     platform = q.data[2:]
     context.user_data["platform"] = platform
     
-    # نصوص الأزرار
     buy_txt = get_text(user_id, "buy_btn")
     free_txt = get_text(user_id, "free_btn").format(POINT_COST)
     back_txt = get_text(user_id, "back_btn")
@@ -239,7 +237,6 @@ async def action(update: Update, context):
         return
     
     if q.data == "buy":
-        # التعديل المطلوب: زر رجوع في قائمة الدفع
         text = get_text(user_id, "buy_text").format(CONTACT_USERNAME)
         back_txt = get_text(user_id, "back_btn")
         
@@ -271,7 +268,6 @@ async def action(update: Update, context):
         text = get_text(user_id, "success").format(platform, acc, POINT_COST)
         await q.edit_message_text(text, parse_mode="Markdown")
 
-        # LOGS
         log_msg = f"🔔 **LOG:** {q.from_user.first_name} pulled {platform}. (Remaining Points: {users[user_id]['points']})"
         try: await context.bot.send_message(LOG_CHANNEL, log_msg)
         except: pass
@@ -284,5 +280,5 @@ app.add_handler(CallbackQueryHandler(settings_menu, pattern="^settings$"))
 app.add_handler(CallbackQueryHandler(choose_platform, pattern="^p_"))
 app.add_handler(CallbackQueryHandler(action, pattern="^(buy|free|back)$"))
 
-print("✅ Bot is running with Multi-Language Support...")
+print("✅ Bot is running...")
 app.run_polling()
