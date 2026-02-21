@@ -1,4 +1,5 @@
 import os
+import sys
 import zipfile
 import random
 import psycopg2
@@ -6,10 +7,23 @@ from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
 
-# ================= CONFIG =================
-TOKEN = os.getenv("8520184434:AAGnrmyjAkLpkvSZERLwqM9_g5QpvNe3uKI")
+# ================= SAFE ENV CHECK =================
+TOKEN = os.getenv("BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
 
+print("=== ENV CHECK ===")
+print("BOT_TOKEN:", "OK" if TOKEN else "MISSING")
+print("DATABASE_URL:", "OK" if DATABASE_URL else "MISSING")
+
+if not TOKEN:
+    print("ERROR: BOT_TOKEN not set in Railway Variables")
+    sys.exit(1)
+
+if not DATABASE_URL:
+    print("ERROR: DATABASE_URL not set in Railway Variables")
+    sys.exit(1)
+
+# ================= CONFIG =================
 ADMIN_ID = "6808384195"
 POINT_COST = 3
 
@@ -28,8 +42,13 @@ REQUIRED_CHANNELS = [
 ]
 
 # ================= DATABASE =================
-conn = psycopg2.connect(DATABASE_URL)
-cursor = conn.cursor()
+try:
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    print("Database connected successfully")
+except Exception as e:
+    print("Database connection failed:", e)
+    sys.exit(1)
 
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS users(
@@ -67,7 +86,8 @@ def create_user(user_id):
 
 def get_points(user_id):
     cursor.execute("SELECT points FROM users WHERE user_id=%s",(user_id,))
-    return cursor.fetchone()[0]
+    result = cursor.fetchone()
+    return result[0] if result else 0
 
 def update_points(user_id, amount):
     cursor.execute(
@@ -97,7 +117,6 @@ async def is_member(bot,user_id):
 # ================= STOCK SYSTEM =================
 def deliver_account(platform):
     path = f"{platform}.txt"
-
     if not os.path.exists(path):
         return None
 
@@ -130,7 +149,6 @@ def deliver_cookie(platform):
         chosen=random.choice(files)
         data=z.read(chosen)
 
-    # إعادة إنشاء zip بدون الملف المسحوب
     remaining=[]
     with zipfile.ZipFile(zip_path,'r') as z:
         for f in z.namelist():
@@ -172,7 +190,7 @@ async def start(update:Update,context:ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(buttons)
     )
 
-# ================= CALLBACK HANDLER =================
+# ================= CALLBACK =================
 async def buttons(update:Update,context):
     q=update.callback_query
     await q.answer()
@@ -232,5 +250,6 @@ async def buttons(update:Update,context):
 app=ApplicationBuilder().token(TOKEN).build()
 app.add_handler(CommandHandler("start",start))
 app.add_handler(CallbackQueryHandler(buttons))
-app.run_polling()
 
+print("Bot is starting...")
+app.run_polling()
