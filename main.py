@@ -1,32 +1,37 @@
 import os
-import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from flask import Flask, request
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-# ================= KEEP RAILWAY ALIVE =================
+# ================= CONFIG =================
+TOKEN = os.getenv("BOT_TOKEN")
 PORT = int(os.getenv("PORT", 8080))
 
-class Handler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"Bot is running")
+app_flask = Flask(__name__)
 
-def run_web_server():
-    server = HTTPServer(("0.0.0.0", PORT), Handler)
-    server.serve_forever()
+telegram_app = ApplicationBuilder().token(TOKEN).build()
 
-threading.Thread(target=run_web_server).start()
-
-# ================= TELEGRAM BOT =================
-TOKEN = os.getenv("8520184434:AAGnrmyjAkLpkvSZERLwqM9_g5QpvNe3uKI")
-
+# ================= HANDLER =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🔥 Bot is working!")
+    await update.message.reply_text("🔥 Bot is running on Railway Webhook!")
 
-app = ApplicationBuilder().token(TOKEN).build()
-app.add_handler(CommandHandler("start", start))
+telegram_app.add_handler(CommandHandler("start", start))
 
-print("Bot started successfully")
-app.run_polling()
+# ================= WEBHOOK ROUTE =================
+@app_flask.route(f"/{TOKEN}", methods=["POST"])
+async def webhook():
+    data = request.get_json(force=True)
+    update = Update.de_json(data, telegram_app.bot)
+    await telegram_app.process_update(update)
+    return "ok"
+
+@app_flask.route("/")
+def home():
+    return "Bot is alive"
+
+# ================= START =================
+if __name__ == "__main__":
+    telegram_app.bot.set_webhook(
+        url=f"{os.getenv('RAILWAY_STATIC_URL')}/{TOKEN}"
+    )
+    app_flask.run(host="0.0.0.0", port=PORT)
