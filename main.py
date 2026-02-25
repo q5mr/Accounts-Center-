@@ -1,32 +1,54 @@
-import json
-import os
-import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+import json, os, random, logging, asyncio
+from datetime import datetime, timedelta
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, constants
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, CallbackQueryHandler, 
     ContextTypes, MessageHandler, filters
 )
 
-# إعداد السجلات
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
-
 # --- الإعدادات الأساسية ---
-# ملاحظة: غير التوكن فوراً لأنه أصبح مكشوفاً!
-TOKEN = "8520184434:AAGnrmyjAkLpkvSZERLwqM9_g5QpvNe3uKI"
+TOKEN = "8520184434:AAGnrmyjAkLpkvSZERLwqM9_g5QpvNe3uKI" # غيره فوراً!
 ADMIN_ID = 6808384195
 LOG_CHANNEL = "@F_F_e8"
 BOT_USERNAME = "F_F_i3_bot"
-CONTACT_USERNAME = "@q5mww"
 POINT_COST = 3
+MYSTERY_BOX_COST = 2 # سعر أرخص لصندوق الحظ
 
-PLATFORMS = {
-    "Netflix": "🔴", "Spotify": "🟢", "Steam": "⚙️", "Disney+": "🟦",
-    "HBO": "🟣", "Xbox": "🟩", "PSN": "🔷", "Crunchyroll": "🟠"
+# --- القواميس والبيانات ---
+STRINGS = {
+    "ar": {
+        "welcome": "👋 أهلاً بك في المتجر الأذكى!\n\n💰 نقاطك: `{pts}`\n🎖 رتبتك: `{rank}`",
+        "select_lang": "الرجاء اختيار اللغة / Please select a language:",
+        "main_menu": "القائمة الرئيسية 🛒",
+        "buy": "🛒 شراء حساب",
+        "lucky": "🎁 صندوق الحظ",
+        "daily": "📅 هدية يومية",
+        "top": "🏆 المتصدرين",
+        "lang": "🌐 اللغة",
+        "no_pts": "❌ نقاطك غير كافية! شارك رابطك: \n",
+        "out_stock": "⚠️ نفذ المخزون! تم إرسال تنبيه للإدارة.",
+        "daily_done": "🎉 حصلت على 1 نقطة هدية! عد غداً.",
+        "daily_wait": "⏳ لقد حصلت على هديتك بالفعل، عد بعد {h} ساعة.",
+    },
+    "en": {
+        "welcome": "👋 Welcome to the Smartest Store!\n\n💰 Points: `{pts}`\n🎖 Rank: `{rank}`",
+        "select_lang": "Please select a language:",
+        "main_menu": "Main Menu 🛒",
+        "buy": "🛒 Buy Account",
+        "lucky": "🎁 Mystery Box",
+        "daily": "📅 Daily Gift",
+        "top": "🏆 Leaderboard",
+        "lang": "🌐 Language",
+        "no_pts": "❌ Not enough points! Share your link: \n",
+        "out_stock": "⚠️ Out of stock! Admin has been notified.",
+        "daily_done": "🎉 You got 1 free point! Come back tomorrow.",
+        "daily_wait": "⏳ Already claimed, come back in {h} hours.",
+    }
 }
 
-REQUIRED_CHANNELS = [("@dayli_cookies_for_free", "https://t.me/dayli_cookies_for_free")]
+PLATFORMS = {"Netflix": "🔴", "Spotify": "🟢", "Steam": "⚙️", "Disney+": "🟦", "Hulu": "🟢"}
 
-# ================= إدارة البيانات =================
+# ================= DATABASE =================
 
 def load_data():
     if not os.path.exists("users.json"): return {}
@@ -37,163 +59,147 @@ def save_data(data):
 
 users = load_data()
 
-# ================= المحرك الأساسي =================
+# ================= LOGIC FUNCTIONS =================
 
-async def is_subscribed(bot, user_id):
-    for ch, _ in REQUIRED_CHANNELS:
-        try:
-            member = await bot.get_chat_member(ch, user_id)
-            if member.status in ["left", "kicked"]: return False
-        except: return False
-    return True
+def get_rank(points):
+    if points < 10: return "🥉 برونزي"
+    if points < 50: return "🥈 فضي"
+    return "🥇 ذهبي"
 
-# ================= أوامر المشرف (Admin) =================
-
-async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID: return
+def deliver_random_account(platform):
+    file_path = f"{platform}.txt"
+    if not os.path.exists(file_path): return None
     
-    keyboard = [
-        [InlineKeyboardButton("📢 إذاعة (Broadcast)", callback_data="adm_broadcast")],
-        [InlineKeyboardButton("📊 إحصائيات", callback_data="adm_stats"), InlineKeyboardButton("🚫 حظر/إلغاء", callback_data="adm_ban")],
-        [InlineKeyboardButton("💰 تعديل نقاط", callback_data="adm_points")]
-    ]
-    await update.message.reply_text("🛠 **لوحة تحكم المدير**", reply_markup=InlineKeyboardMarkup(keyboard))
+    with open(file_path, "r") as f:
+        accounts = [line.strip() for line in f if line.strip()]
+    
+    if not accounts: return None
+    
+    selected = random.choice(accounts)
+    accounts.remove(selected)
+    
+    with open(file_path, "w") as f:
+        f.write("\n".join(accounts))
+    
+    return selected
 
-# ================= الأوامر العامة =================
+# ================= COMMANDS =================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    u_id = str(user.id)
-    
-    # التحقق من الحظر
-    if users.get(u_id, {}).get("is_banned", False):
-        await update.message.reply_text("🚫 نأسف، لقد تم حظرك من استخدام البوت.")
-        return
-
-    # تسجيل المستخدم
+    u_id = str(update.effective_user.id)
     if u_id not in users:
-        referrer = context.args[0] if context.args and context.args[0] in users else None
-        users[u_id] = {"points": 0, "ref_by": referrer, "is_banned": False, "total_refs": 0}
-        if referrer:
-            users[referrer]["points"] += 1
-            users[referrer]["total_refs"] += 1
-            try: await context.bot.send_message(referrer, "🎉 حصلت على نقطة لدعوة صديق!")
+        ref = context.args[0] if context.args and context.args[0] in users else None
+        users[u_id] = {
+            "points": 0, "lang": "ar", "last_daily": None, 
+            "is_banned": False, "total_bought": 0
+        }
+        if ref:
+            users[ref]["points"] += 1
+            try: await context.bot.send_message(ref, "🤝 صديقك انضم! حصلت على نقطة.")
             except: pass
         save_data(users)
+    
+    keyboard = [
+        [InlineKeyboardButton("العربية 🇸🇦", callback_data="setlang_ar"),
+         InlineKeyboardButton("English 🇺🇸", callback_data="setlang_en")]
+    ]
+    await update.message.reply_text("🌐 Select Language / اختر اللغة", reply_markup=InlineKeyboardMarkup(keyboard))
 
-    if not await is_subscribed(context.bot, user.id):
-        btns = [[InlineKeyboardButton(f"✅ Join {ch}", url=l)] for ch, l in REQUIRED_CHANNELS]
-        btns.append([InlineKeyboardButton("🔄 تحقق", callback_data="check_sub")])
-        await update.message.reply_text("⚠️ اشترك بالقنوات أولاً!", reply_markup=InlineKeyboardMarkup(btns))
-        return
-
-    await main_menu(update, context)
-
-async def main_menu(update, context):
+async def show_main_menu(update, context):
+    query = update.callback_query
     u_id = str(update.effective_user.id)
+    lang = users[u_id]["lang"]
     pts = users[u_id]["points"]
+    rank = get_rank(pts)
     
-    keyboard = []
-    temp = []
-    for p in PLATFORMS:
-        temp.append(InlineKeyboardButton(f"{PLATFORMS[p]} {p}", callback_data=f"buy_{p}"))
-        if len(temp) == 2: keyboard.append(temp); temp = []
-    if temp: keyboard.append(temp)
+    txt = STRINGS[lang]
+    keyboard = [
+        [InlineKeyboardButton(txt["buy"], callback_data="list_platforms"), InlineKeyboardButton(txt["lucky"], callback_data="mystery_box")],
+        [InlineKeyboardButton(txt["daily"], callback_data="get_daily"), InlineKeyboardButton(txt["top"], callback_data="show_top")],
+        [InlineKeyboardButton(txt["lang"], callback_data="change_lang")]
+    ]
     
-    keyboard.append([InlineKeyboardButton("🏆 المتصدرين", callback_data="top_players"), InlineKeyboardButton("🔗 رابطي", callback_data="my_link")])
-    
-    text = f"✨ **متجر الحسابات**\n\n👤 العميل: {update.effective_user.first_name}\n💰 نقاطك: `{pts}`\n━━━━━━━━━━━━━━"
-    
-    if update.callback_query: await update.callback_query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-    else: await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    msg_text = txt["welcome"].format(pts=pts, rank=rank)
+    if query: await query.edit_message_text(msg_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    else: await update.message.reply_text(msg_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
-# ================= نظام الـ TOP =================
+# ================= HANDLERS =================
 
-async def show_top(update: Update, context):
-    # ترتيب المستخدمين حسب النقاط (أعلى 10)
-    top_list = sorted(users.items(), key=lambda x: x[1]['points'], reverse=True)[:10]
-    
-    text = "🏆 **قائمة متصدري النقاط:**\n\n"
-    for i, (uid, data) in enumerate(top_list, 1):
-        text += f"{i} - `{uid}` ⇦ `{data['points']}` نقطة\n"
-    
-    await update.callback_query.edit_message_text(text, parse_mode="Markdown", 
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 عودة", callback_data="back_home")]]))
-
-# ================= المعالجات (Callbacks) =================
-
-async def handle_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     u_id = str(query.from_user.id)
     data = query.data
+    lang = users[u_id]["lang"]
+    txt = STRINGS[lang]
     
-    if users.get(u_id, {}).get("is_banned", False): return
+    await query.answer()
 
-    if data == "back_home": await main_menu(update, context)
-    
-    elif data == "top_players": await show_top(update, context)
-    
-    elif data == "my_link":
-        link = f"https://t.me/{BOT_USERNAME}?start={u_id}"
-        await query.edit_message_text(f"🔗 رابط الإحالة الخاص بك:\n`{link}`\n\nكل شخص يدخل تحصل على 1 نقطة.", 
-            parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 عودة", callback_data="back_home")]]))
+    if data.startswith("setlang_"):
+        users[u_id]["lang"] = data.split("_")[1]
+        save_data(users)
+        await show_main_menu(update, context)
+
+    elif data == "list_platforms":
+        keyboard = []
+        for p, e in PLATFORMS.items():
+            keyboard.append([InlineKeyboardButton(f"{e} {p}", callback_data=f"buy_{p}")])
+        keyboard.append([InlineKeyboardButton("🔙", callback_data="back_home")])
+        await query.edit_message_text("Choose Platform:", reply_markup=InlineKeyboardMarkup(keyboard))
 
     elif data.startswith("buy_"):
-        plat = data.split("_")[1]
-        # هنا تضع منطق التسليم الذي شرحناه سابقاً...
-        await query.answer(f"محاولة شراء {plat}...", show_alert=True)
-
-    # --- معالجة أوامر الإدارة ---
-    elif data == "adm_stats":
-        total = len(users)
-        banned = sum(1 for u in users.values() if u.get("is_banned"))
-        await query.edit_message_text(f"📊 إحصائيات البوت:\n\n👥 الأعضاء: {total}\n🚫 المحظورون: {banned}")
-
-    elif data == "adm_broadcast":
-        await query.edit_message_text("ارسل الآن الرسالة التي تريد إذاعتها لكل المستخدمين:")
-        context.user_data["action"] = "broadcast"
-
-# ================= نظام الاستقبال (للإذاعة والتحكم) =================
-
-async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID: return
-    
-    action = context.user_data.get("action")
-    
-    if action == "broadcast":
-        msg = update.message
-        count = 0
-        for uid in users:
-            try:
-                await msg.copy(chat_id=int(uid))
-                count += 1
-            except: pass
-        await update.message.reply_text(f"✅ تمت الإذاعة لـ {count} مستخدم.")
-        context.user_data["action"] = None
-
-    # أمر سريع للحظر: اكتب (حظر 123456)
-    if update.message.text.startswith("حظر "):
-        target = update.message.text.split(" ")[1]
-        if target in users:
-            users[target]["is_banned"] = True
+        platform = data.split("_")[1]
+        if users[u_id]["points"] < POINT_COST:
+            link = f"https://t.me/{BOT_USERNAME}?start={u_id}"
+            await query.edit_message_text(f"{txt['no_pts']}`{link}`", parse_mode="Markdown")
+            return
+        
+        acc = deliver_random_account(platform)
+        if acc:
+            users[u_id]["points"] -= POINT_COST
             save_data(users)
-            await update.message.reply_text(f"🚫 تم حظر {target}")
+            await query.edit_message_text(f"✅ Your Account:\n`{acc}`", parse_mode="Markdown")
+        else:
+            await query.edit_message_text(txt["out_stock"])
+            await context.bot.send_message(LOG_CHANNEL, f"🚨 Out of stock: {platform}")
 
-    # أمر سريع للنقاط: اكتب (نقط 123456 50)
-    if update.message.text.startswith("نقط "):
-        _, target, amount = update.message.text.split(" ")
-        if target in users:
-            users[target]["points"] += int(amount)
+    elif data == "get_daily":
+        last = users[u_id].get("last_daily")
+        now = datetime.now()
+        if last and (now - datetime.fromisoformat(last)) < timedelta(hours=24):
+            diff = timedelta(hours=24) - (now - datetime.fromisoformat(last))
+            await query.answer(txt["daily_wait"].format(h=int(diff.seconds // 3600)), show_alert=True)
+        else:
+            users[u_id]["points"] += 1
+            users[u_id]["last_daily"] = now.isoformat()
             save_data(users)
-            await update.message.reply_text(f"💰 تمت إضافة {amount} نقطة لـ {target}")
+            await query.answer(txt["daily_done"], show_alert=True)
+            await show_main_menu(update, context)
 
-# ================= التشغيل =================
+    elif data == "mystery_box":
+        if users[u_id]["points"] < MYSTERY_BOX_COST:
+            await query.answer("You need points!", show_alert=True)
+            return
+        
+        # اختيار منصة عشوائية
+        p_list = list(PLATFORMS.keys())
+        plat = random.choice(p_list)
+        acc = deliver_random_account(plat)
+        
+        if acc:
+            users[u_id]["points"] -= MYSTERY_BOX_COST
+            save_data(users)
+            await query.edit_message_text(f"🎁 **Mystery Box Result ({plat}):**\n\n`{acc}`", parse_mode="Markdown")
+        else:
+            await query.answer("Bad luck! Empty box.", show_alert=True)
+
+    elif data == "back_home":
+        await show_main_menu(update, context)
+
+# ================= RUN =================
 
 if __name__ == '__main__':
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("admin", admin_panel))
-    app.add_handler(CallbackQueryHandler(handle_actions))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-    print("🚀 BOT IS LIVE AND CRAZY!")
+    app.add_handler(CallbackQueryHandler(handle_callback))
+    print("🔥 Crazy Bot Started!")
     app.run_polling()
