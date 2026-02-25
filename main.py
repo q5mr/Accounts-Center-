@@ -6,11 +6,12 @@ from telegram.ext import (
     ContextTypes, MessageHandler, filters
 )
 
-# --- إعدادات السجلات ---
+# --- إعدادات السجلات (Logs) ---
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-# --- الإعدادات الأساسية (تعديل التوكن والأيدي) ---
-TOKEN = os.getenv("BOT_TOKEN", "8520184434:AAGnrmyjAkLpkvSZERLwqM9_g5QpvNe3uKI")
+# --- الإعدادات الأساسية (التوكن والأيدي) ---
+# تم وضع التوكن مباشرة هنا لتجنب خطأ No address associated with hostname
+TOKEN = "8520184434:AAGnrmyjAkLpkvSZERLwqM9_g5QpvNe3uKI"
 ADMIN_ID = 6808384195
 LOG_CHANNEL = "@F_F_e8"
 BOT_USERNAME = "F_F_i3_bot"
@@ -31,17 +32,20 @@ REQUIRED_CHANNELS = [
     ("@freebroorsell", "https://t.me/freebroorsell")
 ]
 
-# ================= إدارة البيانات =================
+# ================= إدارة البيانات (Data Management) =================
 
 def load_data():
     if not os.path.exists("data.json"): 
         return {"users": {}, "gift_links": {}, "redeem_codes": {}}
     try:
-        with open("data.json", "r") as f: return json.load(f)
-    except: return {"users": {}, "gift_links": {}, "redeem_codes": {}}
+        with open("data.json", "r", encoding="utf-8") as f: 
+            return json.load(f)
+    except: 
+        return {"users": {}, "gift_links": {}, "redeem_codes": {}}
 
 def save_data(data):
-    with open("data.json", "w") as f: json.dump(data, f, indent=4)
+    with open("data.json", "w", encoding="utf-8") as f: 
+        json.dump(data, f, indent=4, ensure_ascii=False)
 
 db = load_data()
 
@@ -59,21 +63,23 @@ async def is_member(bot, user_id):
 def deliver_acc(platform):
     file_path = f"{platform}.txt"
     if not os.path.exists(file_path): return None
-    with open(file_path, "r") as f:
+    with open(file_path, "r", encoding="utf-8") as f:
         lines = [l.strip() for l in f if l.strip()]
     if not lines: return None
     acc = random.choice(lines)
     lines.remove(acc)
-    with open(file_path, "w") as f:
+    with open(file_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
     return acc
 
-# ================= الأوامر =================
+# ================= الأوامر الأساسية =================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message: return
     u_id = str(update.effective_user.id)
     args = context.args
     
+    # إضافة المستخدم الجديد
     if u_id not in db["users"]:
         ref = args[0] if args and args[0] in db["users"] and args[0] != u_id else None
         db["users"][u_id] = {"points": 10.0 if int(u_id) == ADMIN_ID else 0.0, "last_daily": None}
@@ -83,7 +89,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except: pass
         save_data(db)
 
-    # التحقق من رابط الهدية (Gift Link)
+    # معالجة روابط الهدايا (Gift Links)
     if args and args[0].startswith("gift_"):
         gift_id = args[0]
         if gift_id in db["gift_links"]:
@@ -100,7 +106,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # التحقق من الاشتراك الإجباري
     if not await is_member(context.bot, update.effective_user.id):
         btns = [[InlineKeyboardButton(f"Join {ch}", url=link)] for ch, link in REQUIRED_CHANNELS]
-        await update.message.reply_text("👋 أهلاً بك! يرجى الاشتراك في القنوات أدناه لتتمكن من استخدام البوت:", reply_markup=InlineKeyboardMarkup(btns))
+        await update.message.reply_text("👋 أهلاً بك! يرجى الاشتراك في القنوات أدناه لتتمكن من استخدام البوت:", 
+                                       reply_markup=InlineKeyboardMarkup(btns))
         return
 
     await show_main_menu(update, context)
@@ -121,10 +128,12 @@ async def show_main_menu(update, context):
 
     text = f"✨ **Elite Digital Store** ✨\n\n💰 نقاطك: `{pts}`\n━━━━━━━━━━━━━━"
     
-    if update.callback_query: await update.callback_query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
-    else: await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
+    if update.callback_query: 
+        await update.callback_query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
+    else: 
+        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
 
-# ================= التفاعلات =================
+# ================= معالجة الأزرار والقائمة =================
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -166,17 +175,19 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data == "ref":
         link = f"https://t.me/{BOT_USERNAME}?start={u_id}"
-        await query.edit_message_text(f"🔗 رابط الإحالة الخاص بك:\n`{link}`\n\nكل شخص ينضم تحصل على {INVITE_REWARD} نقطة.", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 عودة", callback_data="home")]]))
+        await query.edit_message_text(f"🔗 رابط الإحالة الخاص بك:\n`{link}`\n\nكل شخص ينضم تحصل على {INVITE_REWARD} نقطة.", 
+                                    parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 عودة", callback_data="home")]]))
 
     elif data == "home": await show_main_menu(update, context)
 
-# ================= استقبال النصوص =================
+# ================= معالجة الرسائل النصية =================
 
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not update.message.text: return
     u_id = str(update.effective_user.id)
     text = update.message.text
     
-    # معالجة كود التفعيل
+    # تفعيل الكود
     if context.user_data.get("waiting") == "code":
         if text in db["redeem_codes"]:
             amt = db["redeem_codes"][text]
@@ -191,29 +202,33 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # أوامر الأدمن
     if int(u_id) == ADMIN_ID:
-        if text.startswith("صنع هدية"): # مثال: صنع هدية 2 10
-            _, _, amt, mx = text.split(" ")
-            g_id = f"gift_{random.randint(100, 999)}"
-            db["gift_links"][g_id] = {"amount": float(amt), "max_uses": int(mx), "claimed_by": []}
-            save_data(db)
-            await update.message.reply_text(f"✅ رابط الهدية جاهز:\nhttps://t.me/{BOT_USERNAME}?start={g_id}")
+        if text.startswith("صنع هدية"): # صنع هدية 1 5
+            parts = text.split(" ")
+            if len(parts) == 4:
+                amt, mx = parts[2], parts[3]
+                g_id = f"gift_{random.randint(100, 9999)}"
+                db["gift_links"][g_id] = {"amount": float(amt), "max_uses": int(mx), "claimed_by": []}
+                save_data(db)
+                await update.message.reply_text(f"✅ رابط الهدية جاهز:\nhttps://t.me/{BOT_USERNAME}?start={g_id}")
         
-        elif text.startswith("صنع كود"): # مثال: صنع كود FREE5 5
-            _, _, code, amt = text.split(" ")
-            db["redeem_codes"][code] = float(amt)
-            save_data(db)
-            await update.message.reply_text(f"✅ تم إنشاء الكود `{code}` بقيمة {amt} نقاط.")
+        elif text.startswith("صنع كود"): # صنع كود FREE10 10
+            parts = text.split(" ")
+            if len(parts) == 4:
+                code, amt = parts[2], parts[3]
+                db["redeem_codes"][code] = float(amt)
+                save_data(db)
+                await update.message.reply_text(f"✅ تم إنشاء الكود `{code}` بقيمة {amt} نقاط.")
 
-# ================= التشغيل النهائي =================
+# ================= التشغيل النهائي (Main) =================
 
 if __name__ == '__main__':
-    # تهيئة التطبيق مع معالجة مهلة الاتصال لـ Hugging Face
-    app = ApplicationBuilder().token(TOKEN).read_timeout(30).write_timeout(30).build()
+    # تهيئة التطبيق مع أوقات مهلة طويلة لتفادي NetworkError
+    app = ApplicationBuilder().token(TOKEN).connect_timeout(40).read_timeout(40).write_timeout(40).build()
     
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
     
-    print("🤖 BOT IS READY!")
-    # التغلب على مشاكل الشبكة بالبدء النظيف
+    print("🤖 BOT IS LIVE AND RUNNING!")
+    # استخدام drop_pending_updates لتجنب التراكم عند إعادة التشغيل
     app.run_polling(drop_pending_updates=True)
