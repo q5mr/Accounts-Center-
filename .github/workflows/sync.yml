@@ -2,7 +2,7 @@ name: Sync to Hugging Face hub
 on:
   push:
     branches: [main]
-  force_policy: always
+
 jobs:
   sync:
     runs-on: ubuntu-latest
@@ -14,4 +14,5 @@ jobs:
       - name: Push to hub
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: git push --force https://q5mw:$HF_TOKEN@huggingface.co/spaces/q5mw/Elite-Store-Bot main
+        run: |
+          git push --force https://q5mw:$HF_TOKEN@huggingface.co/spaces/q5mw/Elite-Store-Bot main
