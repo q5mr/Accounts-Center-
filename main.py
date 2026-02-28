@@ -15,7 +15,7 @@ from telegram.ext import (
     ContextTypes
 )
 
-TOKEN = os.getenv("TOKEN")
+TOKEN = os.getenv("8520184434:AAGnrmyjAkLpkvSZERLwqM9_g5QpvNe3uKI")
 ADMIN_ID = 6808384195
 BOT_USERNAME = "@q5mww"
 
@@ -187,3 +187,4 @@ app.post_init = set_bot_commands
 print("Bot Running...")
 
 app.run_polling()
+
