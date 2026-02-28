@@ -1,232 +1,189 @@
 import os
 import json
 import random
-from datetime import datetime, timedelta
+from datetime import datetime
 from telegram import (
     Update,
     InlineKeyboardButton,
-    InlineKeyboardMarkup
+    InlineKeyboardMarkup,
+    BotCommand
 )
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
     CallbackQueryHandler,
-    ContextTypes,
-    MessageHandler,
-    filters
+    ContextTypes
 )
 
 TOKEN = os.getenv("TOKEN")
-ADMIN_ID = 123456789  # حط ايديك هنا
+ADMIN_ID = 6808384195
+BOT_USERNAME = "@q5mww"
 
 DATA_FILE = "data.json"
 
-# ------------------ DATABASE ------------------
+# ---------------- DATABASE ----------------
 
 def load_data():
     if not os.path.exists(DATA_FILE):
-        return {"users": {}, "codes": {}}
+        return {"users": {}}
     with open(DATA_FILE, "r") as f:
         return json.load(f)
 
-def save_data(data):
+def save_data():
     with open(DATA_FILE, "w") as f:
         json.dump(data, f, indent=4)
 
 data = load_data()
 
-# ------------------ LANGUAGES ------------------
-
-LANGS = {
-    "en": "English",
-    "ar": "العربية",
-    "fr": "Français",
-    "es": "Español",
-    "de": "Deutsch",
-    "tr": "Türkçe",
-    "ru": "Русский"
-}
-
-TEXT = {
-    "en": {
-        "menu": "Main Menu",
-        "daily": "🎁 Daily Reward",
-        "wheel": "🎰 Spin Wheel (2 pts)",
-        "leader": "🏆 Leaderboard",
-        "support": "🛠 Support",
-        "back": "🔙 Back",
-        "points": "Your Points:"
-    },
-    "ar": {
-        "menu": "القائمة الرئيسية",
-        "daily": "🎁 هدية يومية",
-        "wheel": "🎰 عجلة الحظ (2 نقطة)",
-        "leader": "🏆 المتصدرين",
-        "support": "🛠 الدعم الفني",
-        "back": "🔙 رجوع",
-        "points": "نقاطك:"
-    }
-}
-
-def t(user_id, key):
-    lang = data["users"][str(user_id)]["lang"]
-    return TEXT.get(lang, TEXT["en"]).get(key, key)
-
-# ------------------ START ------------------
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    uid = str(user.id)
-
+def ensure_user(user_id):
+    uid = str(user_id)
     if uid not in data["users"]:
         data["users"][uid] = {
             "points": 0,
-            "invites": 0,
-            "lang": "en",
             "daily": "",
+            "invites": 0
         }
-        save_data(data)
+
+    if int(uid) == ADMIN_ID:
+        data["users"][uid]["points"] = 9999
+
+# ---------------- START ----------------
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    ensure_user(user.id)
+    save_data()
+
+    text = f"""
+✨ Welcome to Premium Store Bot ✨
+حقوق: {BOT_USERNAME}
+
+💰 Points: {data["users"][str(user.id)]["points"]}
+"""
 
     keyboard = [
-        [InlineKeyboardButton(v, callback_data=f"lang_{k}")]
-        for k, v in LANGS.items()
+        [InlineKeyboardButton("🎁 Daily Gift", callback_data="daily")],
+        [InlineKeyboardButton("🎰 Spin Wheel (2 pts)", callback_data="wheel")],
+        [InlineKeyboardButton("🏆 Leaderboard", callback_data="leader")],
+        [InlineKeyboardButton("🛠 Support", url="https://t.me/netflix_centerBOT")]
     ]
 
     await update.message.reply_text(
-        "Choose Language:",
+        text,
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-# ------------------ MAIN MENU ------------------
+# ---------------- CALLBACK ----------------
 
-async def main_menu(update: Update, context):
+async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    uid = str(query.from_user.id)
+    await query.answer()
 
-    keyboard = [
-        [InlineKeyboardButton(t(uid, "daily"), callback_data="daily")],
-        [InlineKeyboardButton(t(uid, "wheel"), callback_data="wheel")],
-        [InlineKeyboardButton(t(uid, "leader"), callback_data="leader")],
-        [InlineKeyboardButton(t(uid, "support"), url="https://t.me/netflix_centerBOT")]
-    ]
+    user_id = query.from_user.id
+    ensure_user(user_id)
 
-    await query.edit_message_text(
-        f"{t(uid, 'menu')}\n\n{t(uid, 'points')} {data['users'][uid]['points']}",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    uid = str(user_id)
 
-# ------------------ CALLBACK ------------------
+    # Daily
+    if query.data == "daily":
+        today = str(datetime.now().date())
 
-async def callbacks(update: Update, context):
-    query = update.callback_query
-    uid = str(query.from_user.id)
-    data_cb = query.data
-
-    # Language select
-    if data_cb.startswith("lang_"):
-        lang = data_cb.split("_")[1]
-        data["users"][uid]["lang"] = lang
-        save_data(data)
-        await main_menu(update, context)
-
-    # Daily reward
-    elif data_cb == "daily":
-        today = datetime.now().date()
-        last = data["users"][uid]["daily"]
-
-        if last == str(today):
-            await query.answer("Already claimed today.")
+        if data["users"][uid]["daily"] == today:
+            await query.edit_message_text("❌ You already claimed today.")
         else:
+            data["users"][uid]["daily"] = today
             data["users"][uid]["points"] += 1
-            data["users"][uid]["daily"] = str(today)
-            save_data(data)
-            await query.answer("You got 1 point!")
-
-        await main_menu(update, context)
+            save_data()
+            await query.edit_message_text("🎁 You received 1 point!")
 
     # Wheel
-    elif data_cb == "wheel":
+    elif query.data == "wheel":
         if data["users"][uid]["points"] < 2:
-            await query.answer("Not enough points.")
+            await query.edit_message_text("❌ Not enough points.")
         else:
             data["users"][uid]["points"] -= 2
             reward = random.choice([0,1,2,3,5])
             data["users"][uid]["points"] += reward
-            save_data(data)
-            await query.answer(f"You won {reward} points!")
-
-        await main_menu(update, context)
+            save_data()
+            await query.edit_message_text(f"🎰 You won {reward} points!")
 
     # Leaderboard
-    elif data_cb == "leader":
-        top = sorted(
+    elif query.data == "leader":
+        sorted_users = sorted(
             data["users"].items(),
             key=lambda x: x[1]["points"],
             reverse=True
         )[:10]
 
-        text = "🏆 Leaderboard\n\n"
-        for i, (u, info) in enumerate(top, 1):
+        text = "🏆 Top Users\n\n"
+        for i, (u, info) in enumerate(sorted_users, 1):
             text += f"{i}. {info['points']} pts\n"
 
         await query.edit_message_text(text)
 
-# ------------------ CODE SYSTEM ------------------
+# ---------------- ADMIN ----------------
 
-async def redeem(update: Update, context):
-    uid = str(update.effective_user.id)
-    if len(context.args) == 0:
+async def addpoints(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
         return
 
-    code = context.args[0]
+    try:
+        user_id = context.args[0]
+        amount = int(context.args[1])
+        ensure_user(user_id)
+        data["users"][str(user_id)]["points"] += amount
+        save_data()
+        await update.message.reply_text("✅ Points added.")
+    except:
+        await update.message.reply_text("Usage: /addpoints user_id amount")
 
-    if code not in data["codes"]:
-        await update.message.reply_text("Invalid code.")
-        return
-
-    if data["codes"][code]["uses"] >= 2:
-        await update.message.reply_text("Code expired.")
-        return
-
-    data["users"][uid]["points"] += 2
-    data["codes"][code]["uses"] += 1
-    save_data(data)
-
-    await update.message.reply_text("You received 2 points!")
-
-# ------------------ ADMIN ------------------
-
-async def broadcast(update: Update, context):
+async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
 
     msg = " ".join(context.args)
+
     for u in data["users"]:
         try:
             await context.bot.send_message(chat_id=u, text=msg)
         except:
             pass
 
-    await update.message.reply_text("Broadcast sent.")
+    await update.message.reply_text("📢 Broadcast sent.")
 
-async def create_code(update: Update, context):
-    if update.effective_user.id != ADMIN_ID:
-        return
+# ---------------- COMMANDS MENU ----------------
 
-    code = context.args[0]
-    data["codes"][code] = {"uses": 0}
-    save_data(data)
+async def commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = """
+📜 Available Commands
 
-    await update.message.reply_text(f"Code {code} created.")
+/start - Start bot
+/commands - Show commands
 
-# ------------------ RUN ------------------
+👑 Admin Only:
+/addpoints user_id amount
+/broadcast message
+"""
+    await update.message.reply_text(text)
+
+# ---------------- RUN ----------------
+
+async def set_bot_commands(app):
+    await app.bot.set_my_commands([
+        BotCommand("start", "Start bot"),
+        BotCommand("commands", "Show commands")
+    ])
 
 app = ApplicationBuilder().token(TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
-app.add_handler(CommandHandler("redeem", redeem))
+app.add_handler(CommandHandler("commands", commands))
+app.add_handler(CommandHandler("addpoints", addpoints))
 app.add_handler(CommandHandler("broadcast", broadcast))
-app.add_handler(CommandHandler("createcode", create_code))
-app.add_handler(CallbackQueryHandler(callbacks))
+app.add_handler(CallbackQueryHandler(button))
+
+app.post_init = set_bot_commands
+
+print("Bot Running...")
 
 app.run_polling()
